@@ -1,192 +1,142 @@
 # GARCH-Filtered Volatility Forecasting with Machine Learning (XGBoost)
 
-## DE–FR Coupled Power Market
+## Overview
 
-**This is a re-upload of the project. This new upload is active work in progress. I would especially like to test it on another dataset that was not standartized/regularized or anyhow manipulated before.**
+This project implements a **hybrid volatility forecasting framework** for 24-hour electricity futures in the **Germany–France (DE–FR) coupled power market**.
 
-This project implements a **hybrid volatility forecasting and signal extraction framework** for 24-hour electricity futures in a coupled European power market (Germany–France).
+The approach combines:
 
-The methodology combines:
-- **Rolling GARCH model** to filter systematic volatility dynamics (market-neutrality)
-- **Machine learning (XGBoost)** to model and forecast *residual volatility*
-- **Rank-based validation and trading**
+1. **Rolling GARCH(1,1)** to model systematic volatility dynamics  
+2. **XGBoost** to forecast residual volatility  
+3. **Rank-based validation and trading implementation**
 
-The framework is designed for **relative ranking and market-neutral trading**, not absolute volatility prediction.
+The objective is **relative ranking of volatility (cross-sectional signal extraction)** rather than precise level prediction.
 
-> **Research-grade project!** Also beware that it is limited by the dataset size, therefore results obtained here might not generalize extremely well onto larger data/drastically different regimes.
-
+> This is a research-grade project and work in progress.
 
 ---
 
-## Data Source and Scope
+## Data
 
-The data comes from a past machine learning challenge hosted by ENS:
-- https://challengedata.ens.fr/participants/challenges/97/
-
-Due to licensing and registration requirements, the dataset is **not included** in this repository. It can be retrieved freely from the website after registration. 
-All variables contained in the dataset, along with additional context, are described in the accompanying Jupyter notebook.
-
-**Important clarification**  
-The goals of this project **do not align with the original ML challenge**:
+- Source: ENS machine learning challenge  
+  https://challengedata.ens.fr/participants/challenges/97/
 - Only **TRAIN data** is used
-- A **rolling-window forecasting setup** is applied
+- A **rolling forecasting setup** is implemented
 - Full realized volatility is available for evaluation
 - No challenge TEST data is used
-- The original challenge focuses on **price explanation**, not forecasting
+- The original challenge focused on price explanation, not forecasting
+
+Due to potential restrictions, the dataset is not included in the repository.
 
 ---
 
-## Objective and Evaluation
+## Objective & Evaluation
 
-- **Primary metric:** Spearman rank correlation  
-- **Motivation:** The model is evaluated on its ability to *correctly rank relative volatility*, consistent with cross-sectional and market-neutral trading applications.
+### Primary Metric
+- **Spearman rank correlation (Information Coefficient)**
 
-Model outputs are validated:
-- **Statistically** (rank correlation, permutation tests)
-- **Economically** (via a realistic trading strategy with costs)
+The model is evaluated on its ability to correctly rank relative volatility between DE and FR.
 
----
-
-## Project Status
-
-This project is actively evolving. Potential future extensions include:
-- Bayesian hyperparameter optimization
-- Alternative ranking and loss metrics
-- Additional validation and robustness tests
+### Validation Layers
+- Statistical validation (rank IC, stability checks)
+- Economic validation (market-neutral trading strategy with transaction costs)
 
 ---
 
-## 1. Economic Motivation
+## Model Architecture
 
-Electricity price volatility is driven by **structural system stress**, not only by past price dynamics.
+### 1. GARCH Baseline
 
-Key volatility regimes include:
-- Supply–demand imbalance (residual load stress)
-- Cross-border congestion and flow pressure
-- Fuel merit order shifts (gas–coal–carbon spreads)
-- Renewable penetration regimes
+For each country:
 
-These regimes are:
-- Persistent
-- Interpretable
-- Economically meaningful
+- Rolling **GARCH(1,1)** model
+- 500-day estimation window
+- One-step-ahead volatility forecast
+- Models estimated independently for DE and FR
 
-This makes them particularly suitable for **rank-based machine learning approaches**.
+Purpose:
+- Capture autoregressive volatility structure
+- Remove common dynamics before ML step
 
 ---
 
-## 2. Model Architecture
+### 2. ML on Residual Volatility
 
-### 2.1 GARCH Baseline
+Machine learning is applied to **GARCH residual volatility**.
 
-For each country (DE and FR):
+- Model: **XGBoost**
+- Rolling training window: 280 days  
+- Prediction horizon: 21 days  
+- Empirical hyperparameter selection
 
-- A rolling **GARCH(1,1)** model is fitted on past returns
-- Rolling window size: **500 days**
-  - Ensures at least ~300 observations
-  - Produces stable volatility estimates
-- One-step-ahead conditional volatility is forecast
-- Models are estimated **independently** for Germany and France
-
-This step captures **autoregressive volatility structure** and removes common dynamics.
-
----
-
-### 2.2 ML on Residual Volatility
-
-Machine learning is applied to **residual volatility**:
-
-
-- Model: **XGBoost (gradient-boosted decision trees)**
-- Training is performed in rolling windows
-- Hyperparameters are selected empirically (see notebook)
-
-#### Why XGBoost?
-
-- Captures nonlinear regime behavior and threshold effects
-- Well suited for power markets, where volatility reacts strongly under system stress
-- Robust to heavy tails and outliers
-- Performs well on small, noisy datasets **with proper regularization!**
-
-Residuals are used **directly** for forecasting.  
-A smoothed (e.g. 5-day rolling mean) residual was tested and improves ranking stability, but shifts the strategy toward trend-following, which may reduce economic relevance for day-ahead trading.
+Why XGBoost:
+- Captures nonlinear regime effects
+- Handles threshold behavior typical in power markets
+- Robust to small, noisy datasets (with regularization)
 
 ---
 
-### 2.3 Rolling Window Design
+### 3. Feature Engineering
 
-- **Training window:** 280 days (~1 trading year)  
-  Balances regime stability and adaptability
-- **Prediction window:** 21 days  
-  Monthly rebalancing horizon, less noisy than daily signals
+Features are designed to reflect structural system regimes.
 
-Window lengths should generally be chosen to optimize the stability–responsiveness tradeoff.
+**Volatility persistence**
+- Lagged volatility
+- Rolling volatility statistics
 
----
+**System stress**
+- Residual load measures
+- Stress indicators
 
-### 2.4 Feature Engineering
+**Cross-border congestion**
+- Flow imbalance variables
 
-From raw inputs (weather, fuel data, system variables), **low-noise structural regime features** are constructed. Examples include:
+**Fuel & merit order**
+- Gas–coal spreads
+- Carbon pressure proxies
 
-#### Volatility Persistence
-- `vol_lag1`, `vol_lag3`, `vol_lag7`
-- `vol_roll_std_7`, `vol_roll_std_30`
+**Renewables regime**
+- Relative renewable penetration
 
-#### System Stress
-- `DE_RESIDUAL_LOAD`, `FR_RESIDUAL_LOAD`
-- `DE_RESIDUAL_STRESS`, `FR_RESIDUAL_STRESS`
+Feature selection to be used for training is now automatic and is not perfect. Might adjust it later.
 
-#### Cross-Border Congestion
-- `LOAD_IMBALANCE`
-- `FLOW_PRESSURE`
-- `TOTAL_FLOW`
+Key observation:
+> Structural regime variables dominate predictive power. Many exogenous effects are absorbed by lagged volatility and stress indicators.
 
-#### Fuel & Merit Order
-- `GAS_COAL_SPREAD`
-- `CARBON_PRESSURE`
-- `HIGH_GAS_REGIME`
-
-#### Renewables Regime
-- `REL_RENEWABLE`
-
-Initially, feature selection was manual.  
-An **automatic feature selection procedure** was later introduced, significantly reducing the feature set.
-
-Key finding:
-> Structural regime variables dominate predictive power; many exogenous drivers are implicitly absorbed by lagged volatility and slow-moving stress indicators.
-
-All engineered features are checked to ensure **no forward-looking bias** or data leakage.
+All features are constructed to avoid forward-looking bias.
 
 ---
 
-## 3. Validation Results
+## Results (In-Sample Rolling Backtest)
 
-| Metric                     | Value |
-|----------------------------|-------|
-| Pooled IC, residuals, ML   | 0.32  |
-| DE IC, residuals, ML       | 0.12  |    
-| FR IC, residuals, ML       | 0.18  |
-| DE IC, baseline GARCH      | 0.08  |
-| FR IC, baseline GARCH      | 0.07  |
-| DE rank autocorr.          | 0.78  |
-| FR rank autocorr.          | 0.68  |
+| Metric | Value |
+|--------|-------|
+| Pooled IC (ML residual) | 0.32 |
+| DE IC (ML residual) | 0.12 |
+| FR IC (ML residual) | 0.18 |
+| DE IC (GARCH baseline) | 0.08 |
+| FR IC (GARCH baseline) | 0.07 |
+| Strategy Sharpe (with costs) | 0.8 |
+| Max Drawdown | -13.8% |
 
-**Interpretation:**
-- The model extracts statistically significant and persistent structure, tradeable outcome
-- Performance is stable across time
-- Additional details can be found in the notebook
+Interpretation:
+- ML improves upon a weak GARCH baseline
+- Predictive power is moderate but persistent
+- Results are economically exploitable
+
 ---
 
-## 4. Trading Strategy
+## Trading Framework
 
-Model predictions are translated into a **relative volatility spread strategy**:
+Signals are converted into a **relative volatility spread strategy**:
 
-- Cross-sectional normalization per day  
-  → market neutrality across countries
-- Rolling z-scores per country
-- Threshold-based long/short signals  
-  → trades only when signals are strong enough to overcome costs
-- Hypothetical transaction costs are included
+- Cross-sectional normalization
+- Rolling z-scores
+- Threshold-based entry rules
+- Hypothetical transaction costs included
+- Market-neutral across DE–FR
+
+The strategy targets **relative volatility mispricing**, not a directional bet.
 
 ---
 
@@ -198,8 +148,45 @@ Model predictions are translated into a **relative volatility spread strategy**:
 | Max Drawdown         |-13.8  |
 | Avg Daily Turnover   | 0.48  |
 
-Additional evaluation and details can be found in the notebook.
+---
 
-These results are consistent with a **realistic, market-neutral relative-volatility arbitrage strategy**, rather than a directional volatility bet.
+# Limitations
+
+This project has important constraints:
+
+### 1. Small dataset
+- Limited time span
+- Low number of independent regimes
+- Risk of overfitting despite rolling validation
+- Results may not generalize to new structural regimes
+
+### 2. Simple baseline
+- GARCH(1,1) is a simple benchmark and has quite a weak signal level here
+- Incremental ML improvement should be interpreted cautiously
+
+### 3. Trading assumptions
+- Simplified execution model
+- No liquidity constraints
+- No slippage modeling
+- Capacity limits not considered
 
 ---
+
+## Next Steps
+
+- Stronger volatility benchmarks (HAR, regime-switching models)
+- Bayesian hyperparameter optimization
+- External dataset validation
+- More realistic execution modeling
+
+---
+
+## Takeaway
+
+This project demonstrates:
+
+- A structured approach to hybrid volatility modeling  
+- Rank-based evaluation aligned with trading applications  
+- Integration of statistical validation and trading backtesting  
+
+It should be viewed as a **research prototype**, not a production-ready trading system.
