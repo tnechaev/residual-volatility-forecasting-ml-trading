@@ -2,7 +2,7 @@
 
 ## DE–FR Coupled Power Market
 
-**This is a re-upload of the project. Previous version had a few issues. This new upload is active work in progress**
+**This is a re-upload of the project. This new upload is active work in progress. I would especially like to test it on another dataset that was not standartized/regularized or anyhow manipulated before.**
 
 This project implements a **hybrid volatility forecasting and signal extraction framework** for 24-hour electricity futures in a coupled European power market (Germany–France).
 
@@ -163,11 +163,11 @@ All engineered features are checked to ensure **no forward-looking bias** or dat
 
 | Metric                     | Value |
 |----------------------------|-------|
-| Pooled IC, residuals, ML   | 0.29  |
-| DE IC, residuals, ML       | 0.08  |    
+| Pooled IC, residuals, ML   | 0.32  |
+| DE IC, residuals, ML       | 0.12  |    
 | FR IC, residuals, ML       | 0.18  |
-| DE IC, baseline GARCH      | 0.07  |
-| FR IC, baseline GARCH      | ~0    |
+| DE IC, baseline GARCH      | 0.08  |
+| FR IC, baseline GARCH      | 0.07  |
 | DE rank autocorr.          | 0.78  |
 | FR rank autocorr.          | 0.68  |
 
