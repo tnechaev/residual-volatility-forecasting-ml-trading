@@ -18,28 +18,26 @@ The objective is **relative ranking of volatility (cross-sectional signal extrac
 ## IMPORTANT UPDATE!
 
 **01.03.2026** -- This a **major update** of the previous work. Most significant changes:
-- Proper **historical data** (previously -- pre-aggregated small data sample from a ML competition), spanning currently from **01.2017 to 12.2023**. Soon the extended period from 01.2015 till now will be included.  
+- Proper **historical data** (previously -- pre-aggregated small data sample from a ML competition), spanning from **01.2015 to 02.2026**.  
 - GARCH(1,1) was previously used as a baseline model, however, it did not yield satisfactory results on the new dataset. Replaced with **HAR-RV** for further use; previous results kept for demostration and comparison.
 - All the modeling execution is now parallelized.
 ---
 
 ## Data
 
-- **ENTSO-e**: hourly generation and load data
-- **Copernicus**: hourly  weather data (rain, wind, temperature)
-- **EMBER**: electricity hourly price data (found it easier to retrieve than directly from ENTSO-e)
+- **ENTSO-e**: 15-min-frequency generation and load data
+- **Copernicus**: daily  weather data (rain, wind, temperature)
+- **EMBER**: hourly electricity price data (found it easier to retrieve than directly from ENTSO-e)
 
-All data is then re-aggregated into daily. Realized volatility and log prices are buit from price data. Physical units are kept for the variables.
-
-For more details and instructions for data retrieval and processing please check data_processing.ipynb.
+All data is then re-aggregated into daily. Realized volatility and log prices are buit from price data. Physical units are kept for the variables. For more details and instructions for data retrieval and processing please check data_processing.ipynb
 ---
 
 ## Objective & Evaluation
 
 ### Primary Metric
 - **Spearman rank correlation (Information Coefficient)**
--The model is evaluated on its ability to produce correct cross-sectional rank ordering. 
-- RMSE and MAE are also implemented, but are currently not useful per-se. Staying there for the future upgrades and as a relative metric (track model improvements).
+- The model is evaluated on its ability to produce correct cross-sectional rank ordering. 
+- RMSE and MAE are also implemented, but are currently **not used as an absolute metric**, rather as a relative metric for tracking model improvements. They might also be used directly in the future project updates.
 
 ### Validation Layers
 - Statistical validation (rank IC, residual ACF, stability checks)
@@ -79,7 +77,7 @@ Why XGBoost:
 
 ### 3. Feature Engineering
 
-Features are designed to reflect structural system regimes. Currently very minimalist, but can expand the otpions later.
+Features are designed to reflect structural system regimes. Currently very minimalist, but can expand the feature pool later.
 
 **Volatility persistence**
 - Lagged log prices
@@ -103,15 +101,15 @@ All features are constructed to avoid forward-looking bias.
 - Unsupervised n-state (n=2) Gaussian HMM
 - Probabilistic regime assignment --> detecting high/low vol states
 
-## Results (Rolling Backtest)
+## Results (Baseline + ML in expanding window walk-forward CV)
 
 | Metric | Value |
 |--------|-------|
 | Pooled IC (ML) | 0.37 |
 | DE IC (ML) | 0.38 |
-| FR IC (ML) | 0.32 |
-| DE IC (baseline) | 0.53 |
-| FR IC (baseline) | 0.44 |
+| FR IC (ML) | 0.33 |
+| DE IC (baseline) | 0.60 |
+| FR IC (baseline) | 0.56 |
 
 - Baseline captures the dynamics
 - Moderate but persistent predictive power
@@ -122,7 +120,7 @@ All features are constructed to avoid forward-looking bias.
 ## Trading Framework
 
 - Cross-country market-neutral framework
-
+- OOS backtest
 - Rolling z-scores, no lookahead
 - Adaptive thresholding (static/quantile/vol-based)
 - Daily cross-sectional neutrality enforced
@@ -135,16 +133,21 @@ All features are constructed to avoid forward-looking bias.
 
 | Metric               | Value |
 |----------------------|-------|
-| Sharpe Ratio         | 0.94  |
-| Max Drawdown         |-7.31  |
-| Avg Daily Turnover   | 0.78  |
+| Sharpe Ratio         | 1.3  |
+| Max Drawdown         |-8.6  |
+| Avg Daily Turnover   | 0.81 |
+| Win Rate | 45.16% |
+| Daily PnL after cost | 82.85 |
+| Total Cost | 15.11 (50 bps) |
 ---
 
 # Current issues and next steps:
 
 - Baseline currently not regime-aware, could still be improved overall
 - Substantial overfitting (train/val gap of ~0.2) --> improve feature engineering and hyperparameter optimizaton (can be e.g. Bayesian)
+- Check whether rolling window CV can be better for the current multi-regime longer-history data
 -  Regime detection may be utilized sub-optimally, separate per-regime model implementation can be considered
-- Trading strategy: still sensitive to extremes, more realistic execution modeling can be done. Cost estimate is very optimistic, need more research of what real values are
+- Trading strategy: still sensitive to extremes, more realistic execution modeling (slippage, realistic fees) can be done
+- Improve diagnostic plots to make them more informative, esp. noisy per-fold ones
 ---
 
