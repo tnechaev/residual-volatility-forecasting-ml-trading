@@ -7,7 +7,7 @@ This project implements a **hybrid volatility forecasting framework**  (day-ahea
 The approach combines:
 
 1. **Rolling  HAR-RV** to model systematic volatility dynamics  
-2. **XGBoost** to forecast residual volatility  
+2. **XGBoost in rolling or expanding windows** to forecast residual volatility  
 3. **Hidden Markov Model** -based regime detection
 4. **Rank-based primary metrics, validation and trading implementation**
 
@@ -15,7 +15,11 @@ The objective is **relative ranking of volatility (cross-sectional signal extrac
 
 > Research-grade project, work in progress! Right now all the functions and methods and analysis are in one notebook, which will be changed soon. Results are non-optimal at this stage either, and active investigation is ongoing.
 
-## IMPORTANT UPDATE!
+## WHAT'S NEW
+
+- **03.03.2026** 
+- Tested **rolling-window** vs expanding window CV, now a new function incorporating both functionalities is in place. Motivation -- potentially better performance of rolling windows on multi-regime data, where regimes are persistent. Markov regime detection currently does not work as intended, therefore analyzing without it for now. **Result**: improved IC by 0.3 points (pooled and per-country) compared to exp. window.
+- Optuna optimizer for XGBoost hyperparameters, simple version trained/tested on post-2022 regime, not on full data and not in the main CV. Per-country optimization. Result: minor/no improvement in metrics, but substantial improvement of overfitting gap (FR, DE 0.16, 0.11 vs 0.21, 0.16). However, optimization ideally needs to run in the main CV function.
 
 **01.03.2026** -- This a **major update** of the previous work. Most significant changes:
 - Proper **historical data** (previously -- pre-aggregated small data sample from a ML competition), spanning from **01.2015 to 02.2026**.  
@@ -68,7 +72,8 @@ Purpose:
 Machine learning is applied to **residual volatility** (after baseline subtraction) 
 
 - Model: **XGBoost**
-- Expanding training window: 280 days  
+- **Currently used**: rolling window of 1200 days
+- Can be also used in expanding window mode, exp. window usually 252-280 days  
 - Prediction horizon: 21 days  
 
 Why XGBoost:
@@ -107,14 +112,14 @@ All features are constructed to avoid forward-looking bias.
 
 | Metric | Value |
 |--------|-------|
-| Pooled IC (ML) | 0.37 |
-| DE IC (ML) | 0.38 |
-| FR IC (ML) | 0.33 |
+| Pooled IC (ML) | 0.39 |
+| DE IC (ML) | 0.41 |
+| FR IC (ML) | 0.34 |
 | DE IC (baseline) | 0.60 |
 | FR IC (baseline) | 0.56 |
 
 - Baseline captures the dynamics
-- Moderate but persistent predictive power
+- Persistent predictive power
 - Results are economically exploitable
 
 ---
@@ -135,20 +140,18 @@ All features are constructed to avoid forward-looking bias.
 
 | Metric               | Value |
 |----------------------|-------|
-| Sharpe Ratio         | 1.3  |
-| Max Drawdown         |-8.6  |
-| Avg Daily Turnover   | 0.81 |
-| Win Rate | 45.16% |
-| Daily PnL after cost | 82.85 |
-| Total Cost | 15.11 (50 bps) |
+| Sharpe Ratio         | 1.69  |
+| Max Drawdown         |-5.91 |
+| Avg Daily Turnover   | 0.84 |
+| Win Rate | 45.85% |
+| Daily PnL after cost | 107.68 |
+| Total Cost | 15.73 (50 bps) |
 ---
 
 # Current issues and next steps:
 
-- Baseline currently not regime-aware, could still be improved overall
-- Substantial overfitting (train/val gap of ~0.2) --> improve feature engineering and hyperparameter optimizaton (can be e.g. Bayesian)
-- Check whether rolling window CV can be better for the current multi-regime longer-history data
--  Regime detection may be utilized sub-optimally, separate per-regime model implementation can be considered
+- Mostly raw and a few basic engineered features are used for XGBoost right now -- add and test more engineered features
+-  Regime detection inside the CV function currently mixes up regimes -- need more robust implementation
 - Trading strategy: still sensitive to extremes, more realistic execution modeling (slippage, realistic fees) can be done
 - Improve diagnostic plots to make them more informative, esp. noisy per-fold ones
 ---
