@@ -19,7 +19,7 @@ The objective is **relative ranking of volatility (cross-sectional signal extrac
 
 - **03.03.2026** 
 - Tested **rolling-window** XGBoost (expanding window functionality kept). Motivation: when regimes change persistently, better not to overuse old data. **Result**: improved IC by 0.3 points (pooled and per-country) compared to exp. window.
-- Optuna for XGBoost hyperparameter optimization, trained/tested on post-2022 regime. Result: minor/no improvement in metrics, but substantial improvement of overfitting gap (FR, DE 0.16, 0.11 vs 0.21, 0.16). However, optimization ideally needs to run in the main CV function.
+- Optuna for XGBoost hyperparameter optimization, trained/tested on post-2022 regime. Result: overfitting gap improved (FR, DE 0.15, 0.11 vs 0.21, 0.16). However, optimization ideally needs to run in the main CV function.
 
 **01.03.2026** -- This a **major update** of the previous work. Most significant changes:
 - **Historical data** from **01.2015 to 02.2026** (previously -- pre-aggregated small data sample from a ML competition).  
@@ -116,11 +116,11 @@ All features are constructed to avoid forward-looking bias.
 
 | Metric | Value |
 |--------|-------|
-| Pooled IC (ML) | 0.41 |
-| DE IC (ML) | 0.42 |
-| FR IC (ML) | 0.37 |
-| DE IC (baseline) | 0.60 |
-| FR IC (baseline) | 0.56 |
+| Pooled IC (ML) | 0.35 |
+| DE IC (ML) | 0.39 |
+| FR IC (ML) | 0.30 |
+| DE IC (baseline) | 0.67 |
+| FR IC (baseline) | 0.67 |
 
 - Baseline captures the dynamics
 - Persistent predictive power
@@ -144,11 +144,11 @@ All features are constructed to avoid forward-looking bias.
 
 | Metric               | Value |
 |----------------------|-------|
-| Sharpe Ratio         | 1.78  |
-| Max Drawdown         |-6.34 |
-| Avg Daily Turnover   | 0.82 |
+| Sharpe Ratio         | 1.85  |
+| Max Drawdown         |-4.12 |
+| Avg Daily Turnover   | 0.85 |
 | Win Rate | 45.67% |
-| Cost coverage ratio | 8.34 |
+| Cost coverage ratio | 7.64 |
 ---
 
 # Current issues and next steps:

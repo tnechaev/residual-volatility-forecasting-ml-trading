@@ -148,6 +148,7 @@ def add_har_rv_parallel(
         country_window = window_map.get(pref, window if isinstance(window, int) else 150)
 
         rv = df[rv_col].values.astype(float)
+        rv = np.log(np.clip(rv, 1e-8, None))  # safe log, no -inf
         n = len(rv)
         forecasts = np.full(n, np.nan)
 
@@ -220,6 +221,7 @@ def add_har_rv_parallel(
             pred = beta[0] + beta[1] * x1_f + beta[2] * x2_f + beta[3] * x3_f
             # clamp: RV forecasts should be non-negative
             forecasts[i] = max(pred, 1e-12)
+            forecasts[i] = np.exp(pred)
 
         # Compute metrics vs realized volatility (identical to add_garch_parallel)
         mask = ~np.isnan(forecasts) & ~np.isnan(df[realized_col])
@@ -337,17 +339,22 @@ def feature_selection(
     if len(starts) == 0:
         raise ValueError("Date range too small or min_train_days/test_horizon settings incompatible.")
 
-    # helpers
-    def safe_spearman(x_arr, y_arr):
-        try:
-            if len(x_arr)==0 or len(y_arr)==0: return 0.0
-            if np.nanstd(x_arr) < 1e-12 or np.nanstd(y_arr) < 1e-12: return 0.0
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=UserWarning)
-                r = spearmanr(x_arr, y_arr).correlation
-            return 0.0 if np.isnan(r) else float(r)
-        except Exception:
-            return 0.0
+    # ---- Helpers -------------------------------------------------------------
+    def safe_spearman(x: np.ndarray, y: np.ndarray) -> float:
+        """Spearman with full warning suppression and finite-value guard."""
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            try:
+                mask = np.isfinite(x) & np.isfinite(y)
+                if mask.sum() < 5:
+                    return 0.0
+                xs, ys = x[mask], y[mask]
+                if np.std(xs) < 1e-12 or np.std(ys) < 1e-12:
+                    return 0.0
+                r = spearmanr(xs, ys).correlation
+                return 0.0 if not np.isfinite(r) else float(r)
+            except Exception:
+                return 0.0
 
     def evaluate_preds(y_true, preds):
         mask = (~np.isnan(y_true)) & (~np.isnan(preds))

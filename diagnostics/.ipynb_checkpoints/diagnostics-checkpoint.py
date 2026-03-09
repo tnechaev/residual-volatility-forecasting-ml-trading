@@ -294,70 +294,96 @@ def plot_cv_diagnostics(preds: pd.DataFrame, metrics: Dict[str, Any], max_acf_la
     plot_rolling_metric(rolling_mae, "Rolling MAE (per-country)", "MAE")
 
 
-
-
-    # ---- 6) Scatter: pred vs true (pooled) + per-country ----
     from scipy.stats import linregress
-    
+        # ---- 3) Scatter pred vs true + binned conditional mean  
     def plot_scatter_fit(x, y, title="Pred vs True"):
-        mask = np.isfinite(x) & np.isfinite(y)
-        x = x[mask]; y = y[mask]
-        if len(x) < 2:
-            return
-    
-        plt.figure(figsize=(6,6))
-        plt.scatter(x, y, alpha=0.4, s=12, label="data")
-    
-        # Identity line y=x
-        xmin, xmax = np.nanmin(x), np.nanmax(x)
-        buffer = 0.02*(xmax - xmin)
-        x_line = np.array([xmin - buffer, xmax + buffer])
-        plt.plot(x_line, x_line, color='k', linestyle='--', label='y = x')
-    
-        # Fit line (OLS)
         try:
+            mask = np.isfinite(x) & np.isfinite(y)
+            x = x[mask]; y = y[mask]
+            if len(x) < 2:
+                print(f"[{title}] too few points: {len(x)}")
+                return
+    
+            spearman_ic = float(np.corrcoef(
+                x.argsort().argsort(), y.argsort().argsort()
+            )[0, 1])
+    
+            fig, ax = plt.subplots(figsize=(7, 6))
+            fig.suptitle(f"{title}  |  Spearman IC = {spearman_ic:.4f}", fontsize=11)
+    
+            # Raw scatter
+            ax.scatter(x, y, alpha=0.12, s=8, color='steelblue', label="data")
+    
+            # OLS fit line over pred range
+            xmin = np.nanpercentile(x, 1);  xmax = np.nanpercentile(x, 99)
+            ymin = np.nanpercentile(y, 1);  ymax = np.nanpercentile(y, 99)
+            xpad = 0.06 * (xmax - xmin);    ypad = 0.06 * (ymax - ymin)
+            xlims = [xmin - xpad, xmax + xpad]
+            ylims = [ymin - ypad, ymax + ypad]
+            x_line = np.array(xlims)
+    
             res = linregress(x, y)
-            slope, intercept = res.slope, res.intercept
-            y_fit = intercept + slope * x_line
-            plt.plot(x_line, y_fit, color='tab:red', linestyle='-', 
-                     label=f'fit: y={slope:.3f}x+{intercept:.3f}')
+            s_raw, b_raw = res.slope, res.intercept
+            ax.plot(x_line, b_raw + s_raw * x_line, color='tab:red', lw=1.5,
+                    label=f'OLS: slope={s_raw:.3f}')
     
-            txt = f"slope={slope:.3f}\nintercept={intercept:.3f}"
-            plt.gca().text(0.02, 0.98, txt, transform=plt.gca().transAxes,
-                           va='top', ha='left', fontsize=9,
-                           bbox=dict(facecolor='white', alpha=0.7, edgecolor='none'))
-        except Exception as e:
-            print("Linear fit failed:", e)
+            # Binned conditional mean — this is the honest signal curve
+            # Shows E[true | pred] per decile bucket
+            n_bins = 10
+            bin_edges = np.nanpercentile(x, np.linspace(0, 100, n_bins + 1))
+            bin_edges = np.unique(bin_edges)  # drop duplicates if any
+            bin_x, bin_y, bin_se = [], [], []
+            for i in range(len(bin_edges) - 1):
+                in_bin = (x >= bin_edges[i]) & (x < bin_edges[i + 1])
+                if in_bin.sum() < 5:
+                    continue
+                bin_x.append(np.mean(x[in_bin]))
+                bin_y.append(np.mean(y[in_bin]))
+                bin_se.append(np.std(y[in_bin]) / np.sqrt(in_bin.sum()))
     
-        plt.title(title)
-        plt.xlabel('pred'); plt.ylabel('true'); plt.grid(True)
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
+            bin_x = np.array(bin_x)
+            bin_y = np.array(bin_y)
+            bin_se = np.array(bin_se)
+            ax.errorbar(bin_x, bin_y, yerr=1.96 * bin_se,
+                        fmt='o', color='darkorange', ms=6, lw=2, capsize=4, zorder=5,
+                        label='E[true | pred bin] ±95%')
     
+            ax.set_xlim(xlims); ax.set_ylim(ylims)
+            ax.text(0.03, 0.97,
+                    f"OLS slope = {s_raw:.3f}\nintercept = {b_raw:.3f}",
+                    transform=ax.transAxes, va='top', fontsize=9,
+                    bbox=dict(facecolor='white', alpha=0.8, edgecolor='none'))
     
-    # ---- pooled ----
-    pooled_mask = (~preds['pred'].isna()) & (~preds['true'].isna())
+            ax.set_xlabel("pred"); ax.set_ylabel("true")
+            ax.legend(fontsize=8, loc='lower right')
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            plt.show()
+    
+        except Exception:
+            print(f"[{title}] plot failed:")
+            traceback.print_exc()
+
+    # Pooled scatter
+    pooled_mask = preds['pred'].notna() & preds['true'].notna()
     if pooled_mask.sum() > 0:
-        x = preds.loc[pooled_mask, 'pred'].values
-        y = preds.loc[pooled_mask, 'true'].values
-        plot_scatter_fit(x, y, title="Predicted residual vs True residual (pooled)")
-    
-    # ---- per-country ----
+        plot_scatter_fit(
+            preds.loc[pooled_mask, 'pred'].values,
+            preds.loc[pooled_mask, 'true'].values,
+            title="Predicted residual vs True residual (pooled)"
+        )
+
+    # Per-country scatter
     if "COUNTRY" in preds.columns:
         for c in preds['COUNTRY'].dropna().unique():
             sub = preds[preds['COUNTRY'] == c]
-            mask = (~sub['pred'].isna()) & (~sub['true'].isna())
+            mask = sub['pred'].notna() & sub['true'].notna()
             if mask.sum() > 0:
-                x = sub.loc[mask, 'pred'].values
-                y = sub.loc[mask, 'true'].values
-                plot_scatter_fit(x, y, title=f'Pred vs True ({c})')
-
-
-
-
-
-
+                plot_scatter_fit(
+                    sub.loc[mask, 'pred'].values,
+                    sub.loc[mask, 'true'].values,
+                    title=f"Pred vs True ({c})"
+                )
     
 
     # ---- 4) Prediction error distributions (pooled + per-country) ----
