@@ -7,7 +7,7 @@ from tqdm import tqdm
 import time
 import warnings
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
-from joblib import Parallel, delayed
+from joblib import Parallel, delayed, parallel_backend
 from typing import Sequence, List, Dict, Any, Tuple, Optional
 from hmmlearn.hmm import GaussianHMM
 from sklearn.preprocessing import StandardScaler
@@ -109,143 +109,138 @@ def add_garch_parallel(panel: pd.DataFrame,
 
 def add_har_rv_parallel(
     panel: pd.DataFrame,
-    min_obs: int = 22,          # minimum history before first HAR forecast
-    window: object = 150,       # rolling OLS window; int or dict {"DE": 500, "FR": 150}
-    n_jobs: int = 4
+    min_obs: int = 22,
+    window: object = 150,
+    n_jobs: int = -1
 ) -> tuple:
-    """
-    Fit rolling HAR-RV models per country in parallel and store
-    one-step-ahead forecasts in the panel.
-
-    HAR-RV model (Corsi 2009):
-        RV_{t+1} = beta0
-                 + beta1 * RV_d_t          (daily:   last observation)
-                 + beta2 * RV_w_t          (weekly:  mean of last 5 obs)
-                 + beta3 * RV_m_t          (monthly: mean of last 22 obs)
-                 + epsilon
-
-    Rolling OLS is estimated on a window of observations.
-
-    OUTPUT COLUMNS (identical names to add_garch_parallel):
-        {pref}_garch_sigma  — HAR-RV forecast of RV at t+1
-                              (column intentionally keeps the garch_sigma name
-                               so the rest of the code works no matter the function used)
-    """
 
     df = panel.copy()
 
-    # Allow per-country window
     if isinstance(window, dict):
         window_map = window
     else:
         window_map = {"DE": window, "FR": window}
 
     def fit_har_for_country(pref: str):
+
         rv_col = f"{pref}_realized_vol"
-        sigma_col = f"{pref}_garch_sigma"   # <-- intentional: keep existing name
+        sigma_col = f"{pref}_garch_sigma"
         realized_col = rv_col
 
         country_window = window_map.get(pref, window if isinstance(window, int) else 150)
 
-        rv = df[rv_col].values.astype(float)
-        rv = np.log(np.clip(rv, 1e-8, None))  # safe log, no -inf
+        rv_raw = df[rv_col].astype(float)
+
+        # log RV (safe)
+        rv = np.log(np.clip(rv_raw, 1e-8, None))
+
         n = len(rv)
+
+        # ------------------------------------------------------------------
+        # PRECOMPUTE HAR FEATURES (NO LOOKAHEAD)
+        # ------------------------------------------------------------------
+
+        rv_d = rv.shift(1)
+        rv_w = rv.shift(1).rolling(5).mean()
+        rv_m = rv.shift(1).rolling(22).mean()
+
+        X_full = pd.concat(
+            [
+                pd.Series(1.0, index=rv.index),
+                rv_d,
+                rv_w,
+                rv_m
+            ],
+            axis=1
+        )
+
+        X_full.columns = ["const", "rv_d", "rv_w", "rv_m"]
+
         forecasts = np.full(n, np.nan)
 
+        X_np = X_full.values
+        y_np = rv.values
+
+        # ------------------------------------------------------------------
+        # ROLLING OLS
+        # ------------------------------------------------------------------
+
         for i in range(n):
-            # Forecast RV at position i using only data up to i-1
-            # (the forecast is "what will RV be at t=i, given info through t=i-1")
-            if i < max(min_obs, 22):          # need at least 22 obs for monthly component
+
+            if i < max(min_obs, 22):
                 continue
 
-            # history: positions 0 … i-1
             start = max(0, i - country_window)
-            hist = rv[start:i]                # shape (k,)
-            hist_full = rv[max(0, i - 22):i]  # up to 22 obs for monthly component
 
-            # build HAR regressors on historical window for fitting
-            # each row j in [start+22 : i] has:
-            #   y_j     = rv[j]          (target in-sample)
-            #   x1_j    = rv[j-1]        (daily)
-            #   x2_j    = mean(rv[j-5:j])  (weekly)
-            #   x3_j    = mean(rv[j-22:j]) (monthly)
-            fit_start = start + 22            # need 22 lags to build monthly
-            fit_end = i                       # exclusive: fit on rv[fit_start..i-1]
+            X = X_np[start:i]
+            y = y_np[start:i]
 
-            if fit_end - fit_start < 10:      # too few obs → fallback to rolling mean
-                forecasts[i] = np.nanmean(hist)
+            valid = np.isfinite(X).all(axis=1) & np.isfinite(y)
+
+            X = X[valid]
+            y = y[valid]
+
+            if len(y) < 10:
+                forecasts[i] = np.nanmean(y_np[start:i])
                 continue
-
-            # build design matrix for OLS fit
-            rows_y = []
-            rows_X = []
-            for j in range(fit_start, fit_end):
-                y_j = rv[j]
-                if not np.isfinite(y_j):
-                    continue
-                x1 = rv[j - 1]
-                x2_slice = rv[j - 5:j]
-                x3_slice = rv[j - 22:j]
-                if not np.isfinite(x1):
-                    continue
-                x2 = np.nanmean(x2_slice) if len(x2_slice) > 0 else np.nan
-                x3 = np.nanmean(x3_slice) if len(x3_slice) > 0 else np.nan
-                if not (np.isfinite(x2) and np.isfinite(x3)):
-                    continue
-                rows_y.append(y_j)
-                rows_X.append([1.0, x1, x2, x3])
-
-            if len(rows_y) < 5:               # degenerate — fallback
-                forecasts[i] = np.nanmean(hist)
-                continue
-
-            Y = np.array(rows_y)
-            X = np.array(rows_X)
 
             try:
-                # OLS via normal equations (fast for small matrices)
-                beta, _, _, _ = np.linalg.lstsq(X, Y, rcond=None)
+
+                beta, _, _, _ = np.linalg.lstsq(X, y, rcond=None)
+
+                x_f = X_np[i]
+
+                if not np.isfinite(x_f).all():
+                    forecasts[i] = np.nanmean(y_np[start:i])
+                    continue
+
+                pred = beta @ x_f
+
+                # prevent extreme values before exponentiating
+                pred = max(pred, -20)
+
+                forecasts[i] = np.exp(pred)
+
             except Exception:
-                forecasts[i] = np.nanmean(hist)
-                continue
+                forecasts[i] = np.nanmean(y_np[start:i])
 
-            # forecast for position i using rv at i-1 (the last known value)
-            x1_f = rv[i - 1]
-            x2_f = np.nanmean(rv[max(0, i - 5):i])
-            x3_f = np.nanmean(rv[max(0, i - 22):i])
+        # ------------------------------------------------------------------
+        # DIAGNOSTICS 
+        # ------------------------------------------------------------------
 
-            if not (np.isfinite(x1_f) and np.isfinite(x2_f) and np.isfinite(x3_f)):
-                forecasts[i] = np.nanmean(hist)
-                continue
-
-            pred = beta[0] + beta[1] * x1_f + beta[2] * x2_f + beta[3] * x3_f
-            # clamp: RV forecasts should be non-negative
-            forecasts[i] = max(pred, 1e-12)
-            forecasts[i] = np.exp(pred)
-
-        # Compute metrics vs realized volatility (identical to add_garch_parallel)
         mask = ~np.isnan(forecasts) & ~np.isnan(df[realized_col])
+
         if mask.sum() > 0:
+
             y_pred = forecasts[mask]
             y_true = df.loc[mask, realized_col].values
-            ic   = spearmanr(y_pred, y_true).correlation
+
+            ic = spearmanr(y_pred, y_true).correlation
             rmse = float(np.sqrt(np.mean((y_pred - y_true) ** 2)))
-            mae  = float(np.mean(np.abs(y_pred - y_true)))
+            mae = float(np.mean(np.abs(y_pred - y_true)))
+
         else:
+
             ic = rmse = mae = np.nan
 
         return pref, forecasts, {"spearman_ic": ic, "rmse": rmse, "mae": mae}
 
-    # Parallel computation — identical to add_garch_parallel function
-    results = Parallel(n_jobs=n_jobs)(
-        delayed(fit_har_for_country)(pref) for pref in ["DE", "FR"]
-    )
+    # ----------------------------------------------------------------------
+    # PARALLEL EXECUTION
+    # ----------------------------------------------------------------------
 
-    for pref, forecasts, m in results:
-        df[f"{pref}_garch_sigma"] = forecasts    # same column name as GARCH version
-        metrics = {}                             
+    with parallel_backend("loky"):
+        results = Parallel(n_jobs=n_jobs, verbose=10)(
+            delayed(fit_har_for_country)(pref) for pref in ["DE", "FR"]
+        )
 
-    # rebuild metrics dict in one pass (avoids scoping issue)
+    # ----------------------------------------------------------------------
+    # COLLECT RESULTS
+    # ----------------------------------------------------------------------
+
+    for pref, forecasts, _ in results:
+        df[f"{pref}_garch_sigma"] = forecasts
+
     metrics = {pref: m for pref, _, m in results}
 
     return df, metrics
@@ -591,7 +586,11 @@ def feature_selection(
         return out
 
     # ---- Run folds -----------------------------------------------------------
-    results = Parallel(n_jobs=n_jobs)(delayed(run_fold)(i) for i in starts)
+    #results = Parallel(n_jobs=n_jobs)(delayed(run_fold)(i) for i in starts)
+    with parallel_backend("loky"):
+        results = Parallel(n_jobs=n_jobs, verbose=10)(
+        delayed(run_fold)(i) for i in starts
+    )
     results = [r for r in results if r is not None]
     n_folds = len(results)
     if n_folds == 0:
@@ -1022,7 +1021,7 @@ def two_regime_rolling_cv_per_country(
     gap_days: int = 0,
     # --- model ---
     xgb_params: Dict[str, Any] = None,
-    n_jobs: int = 4,
+    n_jobs: int = -1,
     min_samples_per_regime: int = 50,
     # --- Markov (pre-computed columns, no per-fold refitting) ---
     # Requires: add_regime_probs_to_panel() called before CV so that
@@ -1410,7 +1409,11 @@ def two_regime_rolling_cv_per_country(
         len(unique_dates) - gap_days - test_horizon + 1,
         test_horizon,
     ))
-    results = Parallel(n_jobs=n_jobs)(delayed(run_fold)(i) for i in starts)
+    #results = Parallel(n_jobs=n_jobs)(delayed(run_fold)(i) for i in starts)
+    with parallel_backend("loky"):
+        results = Parallel(n_jobs=n_jobs, verbose=10)(
+        delayed(run_fold)(i) for i in starts
+    )
     results = [r for r in results if r is not None]
     if not results:
         raise ValueError("No folds produced.")

@@ -160,7 +160,6 @@ All features are constructed to avoid forward-looking bias.
 
 - Run Optuna hyperparameter optimization inside rolling CV
 - Add generation forecasts/outages / errors as features -- makes it more realistic
-- Adjust parallelization algorithm to include additional CPU cores/clusters when available
 - More realistic execution modeling (slippage, realistic fees) for trading strategy
 
 ---
