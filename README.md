@@ -1,13 +1,12 @@
 # Filtered (Residual) Volatility Forecasting with Machine Learning and Trading
 
-- [Overview](#Overview)
-- [WHAT'S NEW](#WHAT'S NEW)
-- [Data](#Data)
-- [Model Architecture](#Model Architecture)
-- [Results (Baseline + ML in rolling window walk-forward CV)](#Results (Baseline + ML in rolling window walk-forward CV))
-- [Trading Framework](#Trading Framework)
-- [Trading Results (OOS, incl. costs)](#Trading Results (OOS, incl. costs))
-- [Current issues and next steps](#Current issues and next steps)
+- [Overview](#overview)
+- [WHAT'S NEW](#whats-new)
+- [Data](#data)
+- [Model Architecture](#model-architecture)
+- [Results (Baseline + ML in rolling window walk-forward CV)](#results-baseline--ml-in-rolling-window-walk-forward-cv)
+- [Trading Framework](#trading-framework)
+- [Current issues and next steps](#current-issues-and-next-steps)
 
 ## Overview
 
