@@ -548,3 +548,161 @@ def plot_cv_diagnostics(preds: pd.DataFrame, metrics: Dict[str, Any], max_acf_la
     print("Pooled RMSE / MAE:", overall.get("pooled_rmse"), overall.get("pooled_mae"))
 
     return None
+
+
+#---------------------------------------
+# IC stability diagnostics
+#----------------------------------------
+
+def plot_ic_stability(fold_stats: pd.DataFrame, rolling_ic: dict = None):
+    """
+    IC stability diagnostics from fold_stats.
+    Answers: is IC consistent over time? across regimes? is the gap structural?
+    """
+    fs = fold_stats.copy()
+    fs['test_from'] = pd.to_datetime(fs['test_from'])
+    fs['train_until'] = pd.to_datetime(fs['train_until'])
+    post2022 = fs['test_from'] >= '2022-01-01'
+
+    fig, axes = plt.subplots(3, 2, figsize=(17, 17))
+    fig.suptitle('IC Stability Diagnostics', fontsize=13)
+
+    # ---- 1) IC distribution per country — histogram + KDE ----
+    ax = axes[0, 0]
+    for c, col, color in [('DE', 'spearman_ic_de', 'steelblue'),
+                           ('FR', 'spearman_ic_fr', 'darkorange')]:
+        ic = fs[col].dropna()
+        ax.hist(ic, bins=30, alpha=0.4, color=color, density=True, label=f'{c}')
+        ic_sorted = np.sort(ic)
+        kde = stats.gaussian_kde(ic)
+        ax.plot(ic_sorted, kde(ic_sorted), color=color, lw=2)
+        ax.axvline(ic.mean(), color=color, lw=1.5, linestyle='--',
+                   label=f'{c} mean={ic.mean():.3f}')
+    ax.axvline(0, color='k', lw=0.8)
+    ax.set_title('Fold IC distribution')
+    ax.set_xlabel('Spearman IC'); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+
+    # ---- 2) Fraction of folds with positive IC ----
+    ax = axes[0, 1]
+    labels, hit_rates, colors = [], [], []
+    for c, col, color in [('DE all', 'spearman_ic_de', 'steelblue'),
+                           ('FR all', 'spearman_ic_fr', 'darkorange')]:
+        ic = fs[col].dropna()
+        labels.append(c); hit_rates.append((ic > 0).mean()); colors.append(color)
+    # pre/post split
+    for c, col, color in [('DE pre-22', 'spearman_ic_de', 'lightblue'),
+                           ('FR pre-22', 'spearman_ic_fr', 'moccasin'),
+                           ('DE post-22', 'spearman_ic_de', 'darkblue'),
+                           ('FR post-22', 'spearman_ic_fr', 'darkorange')]:
+        mask = ~post2022 if 'pre' in c else post2022
+        ic = fs.loc[mask, col].dropna()
+        labels.append(c); hit_rates.append((ic > 0).mean()); colors.append(color)
+
+    bars = ax.bar(range(len(labels)), hit_rates, color=colors, alpha=0.8)
+    ax.axhline(0.5, color='k', lw=1, linestyle='--', label='50% baseline')
+    ax.set_xticks(range(len(labels))); ax.set_xticklabels(labels, rotation=30, fontsize=8)
+    ax.set_ylim(0, 1); ax.set_title('Fraction of folds with IC > 0')
+    ax.set_ylabel('Hit rate'); ax.legend(fontsize=8); ax.grid(True, alpha=0.3, axis='y')
+    for bar, val in zip(bars, hit_rates):
+        ax.text(bar.get_x() + bar.get_width()/2, val + 0.02,
+                f'{val:.2f}', ha='center', fontsize=8)
+
+    # ---- 3) Rolling 10-fold mean IC — trend over time ----
+    ax = axes[1, 0]
+    fs_sorted = fs.sort_values('test_from')
+    for c, col, color in [('DE', 'spearman_ic_de', 'steelblue'),
+                           ('FR', 'spearman_ic_fr', 'darkorange')]:
+        ic = fs_sorted[col]
+        roll = ic.rolling(10, min_periods=5).mean()
+        ax.plot(fs_sorted['test_from'], roll, color=color, lw=2, label=f'{c} 10-fold MA')
+        ax.fill_between(fs_sorted['test_from'],
+                        ic.rolling(10, min_periods=5).quantile(0.25),
+                        ic.rolling(10, min_periods=5).quantile(0.75),
+                        alpha=0.15, color=color)
+    ax.axhline(0, color='k', lw=0.8)
+    ax.axvline(pd.Timestamp('2022-01-01'), color='red', lw=1,
+               linestyle='--', label='2022 regime shift')
+    ax.set_title('Rolling 10-fold IC (with IQR band)')
+    ax.set_ylabel('Spearman IC'); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+
+    # ---- 4) IC vs train window size — does more data help? ----
+    ax = axes[1, 1]
+    for c, col, color in [('DE', 'spearman_ic_de', 'steelblue'),
+                           ('FR', 'spearman_ic_fr', 'darkorange')]:
+        ax.scatter(fs['train_window_used'], fs[col],
+                   alpha=0.3, s=15, color=color, label=c)
+        # binned mean
+        bins = pd.cut(fs['train_window_used'], bins=8)
+        binned = fs.groupby(bins)[col].mean()
+        bin_centers = [(b.left + b.right)/2 for b in binned.index]
+        ax.plot(bin_centers, binned.values, color=color, lw=2, marker='o', ms=5)
+    ax.set_title('IC vs training window size')
+    ax.set_xlabel('Train window (days)'); ax.set_ylabel('Spearman IC')
+    ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+
+    # ---- 5) Pre vs post 2022 IC comparison — box plot ----
+    ax = axes[2, 0]
+    data_boxes = []
+    box_labels = []
+    box_colors = []
+    for c, col, color in [('DE', 'spearman_ic_de', 'steelblue'),
+                           ('FR', 'spearman_ic_fr', 'darkorange')]:
+        data_boxes.append(fs.loc[~post2022, col].dropna().values)
+        box_labels.append(f'{c} pre-2022')
+        box_colors.append(color)
+        data_boxes.append(fs.loc[post2022, col].dropna().values)
+        box_labels.append(f'{c} post-2022')
+        box_colors.append(color)
+
+    bp = ax.boxplot(data_boxes, labels=box_labels, patch_artist=True, notch=True)
+    for patch, color in zip(bp['boxes'], box_colors):
+        patch.set_facecolor(color); patch.set_alpha(0.6)
+    ax.axhline(0, color='k', lw=0.8)
+    ax.set_title('IC by regime (pre/post 2022)')
+    ax.set_ylabel('Spearman IC')
+    plt.setp(ax.get_xticklabels(), rotation=20, fontsize=8)
+    ax.grid(True, alpha=0.3, axis='y')
+
+    # ---- 6) Gap stability — is overfit getting worse over time? ----
+    ax = axes[2, 1]
+    fs_sorted = fs.sort_values('test_from').copy()
+    for c, train_col, val_col, color in [
+        ('DE', 'train_ic_pre_exp_de', 'val_ic_pre_exp_de', 'steelblue'),
+        ('FR', 'train_ic_pre_exp_fr', 'val_ic_pre_exp_fr', 'darkorange'),
+    ]:
+        if train_col not in fs_sorted or val_col not in fs_sorted:
+            continue
+        gap = (fs_sorted[train_col] - fs_sorted[val_col]).rolling(10, min_periods=5).mean()
+        ax.plot(fs_sorted['test_from'], gap, color=color, lw=2,
+                label=f'{c} gap (10-fold MA)')
+    ax.axhline(0, color='k', lw=0.8)
+    ax.axvline(pd.Timestamp('2022-01-01'), color='red', lw=1,
+               linestyle='--', label='2022 regime shift')
+    ax.set_title('Train-Val IC gap over time (is overfit structural?)')
+    ax.set_ylabel('Train - Val IC'); ax.legend(fontsize=8); ax.grid(True, alpha=0.3)
+
+    plt.tight_layout()
+    plt.show()
+
+    # ---- Summary statistics ----
+    print("\n=== IC STABILITY SUMMARY ===")
+    for c, col in [('DE', 'spearman_ic_de'), ('FR', 'spearman_ic_fr')]:
+        ic = fs[col].dropna()
+        ic_pre  = fs.loc[~post2022, col].dropna()
+        ic_post = fs.loc[post2022,  col].dropna()
+        sr = ic.mean() / ic.std()   # information ratio across folds
+        print(f"\n{c}:")
+        print(f"  Mean IC:          {ic.mean():.4f}")
+        print(f"  Std IC:           {ic.std():.4f}")
+        print(f"  IC / Std (IR):    {sr:.3f}   (>0.5 ok, >1.0 good)")
+        print(f"  Hit rate (IC>0):  {(ic>0).mean():.3f}")
+        print(f"  Pre-2022 mean:    {ic_pre.mean():.4f}  (n={len(ic_pre)})")
+        print(f"  Post-2022 mean:   {ic_post.mean():.4f}  (n={len(ic_post)})")
+        # t-test: is mean IC significantly different from zero?
+        t, p = stats.ttest_1samp(ic, 0)
+        print(f"  t-test vs 0:      t={t:.2f}, p={p:.4f}  "
+              f"({'significant' if p < 0.05 else 'NOT significant'})")
+        # t-test: is post-2022 IC different from pre-2022?
+        t2, p2 = stats.ttest_ind(ic_post, ic_pre)
+        print(f"  Pre vs post t:    t={t2:.2f}, p={p2:.4f}  "
+              f"({'regimes differ' if p2 < 0.05 else 'no significant regime difference'})")

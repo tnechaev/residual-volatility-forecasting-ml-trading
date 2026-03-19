@@ -17,13 +17,15 @@ The objective is **relative ranking of volatility (cross-sectional signal extrac
 
 ## WHAT'S NEW
 
+**19.03.2026** 
+- Optuna hyperparam optimization runs in folds in main CV function. Further improvement in overfitting gap, which is now 0.11-0.12 for DE-FR (70-78% retention rate).
+
 **15.03.2026** 
 -  Added more engineered features, reduced redundancy in final selection
 - Mostly fixed weekly autocorrelation error pattern
 
  **03.03.2026** 
 -  **rolling-window** XGBoost (expanding window functionality kept). Motivation: when regimes change persistently, better not to overuse old data. **Result**: improved IC by 0.3 points (pooled and per-country) compared to exp. window.
-- Optuna for XGBoost hyperparameter optimization, trained/tested on post-2022 regime. **Result**: overfitting gap improved (FR, DE 0.15, 0.11 vs 0.21, 0.16).
 
 **01.03.2026** -- This a **major update** of the previous work. Most significant changes:
 - **Historical data** from **01.2015 to 02.2026** (previously -- pre-aggregated small data sample from a ML competition).  
@@ -121,9 +123,9 @@ All features are constructed to avoid forward-looking bias.
 
 | Metric | Value |
 |--------|-------|
-| Pooled IC (ML) | 0.33 |
+| Pooled IC (ML) | 0.34 |
 | DE IC (ML) | 0.39 |
-| FR IC (ML) | 0.28 |
+| FR IC (ML) | 0.29 |
 | DE IC (baseline) | 0.67 |
 | FR IC (baseline) | 0.67 |
 
@@ -149,17 +151,16 @@ All features are constructed to avoid forward-looking bias.
 
 | Metric               | Value |
 |----------------------|-------|
-| Sharpe Ratio         | 2.09  |
-| Max Drawdown         |-5.36 |
-| Avg Daily Turnover   | 0.90 |
-| Win Rate | 44.73% |
-| Cost coverage ratio | 8.30 |
+| Sharpe Ratio         | 2.4  |
+| Max Drawdown         |-3.8 |
+| Avg Daily Turnover   | 0.9 |
+| Win Rate | 44.8% |
+| Cost coverage ratio | 9.3 |
 ---
 
 # Current issues and next steps:
 
-- Run Optuna hyperparameter optimization inside rolling CV
-- Add generation forecasts/outages / errors as features -- makes it more realistic
+- Add generation **forecasts**/outages / errors as features -- makes it more realistic
 - More realistic execution modeling (slippage, realistic fees) for trading strategy
 
 ---
