@@ -16,7 +16,7 @@ The approach combines:
 
 1. **Rolling  HAR-RV** to model systematic volatility dynamics  
 2. **XGBoost in rolling or expanding windows** to forecast residual volatility  
-3. **Hidden Markov Model**- or vol z-score-based regime detection
+3. **Regime detection** via either HMM or vol z-score
 4. **Rank-based primary metrics, validation and trading implementation**
 
 The objective is **relative ranking of volatility (cross-sectional signal extraction)** , not precise level prediction.
@@ -26,7 +26,7 @@ The objective is **relative ranking of volatility (cross-sectional signal extrac
 ## WHAT'S NEW
 
 **19.03.2026** 
-- Optuna hyperparam optimization runs in folds in main CV function. Further improvement in overfitting gap, which is now 0.11-0.12 for DE-FR (70-78% retention rate).
+- Optuna hyperparameter optimization runs in folds in main CV function. Further improvement in overfitting gap, which is now 0.11-0.12 for DE-FR (70-78% retention rate).
 
 **15.03.2026** 
 -  Added more engineered features, reduced redundancy in final selection
@@ -100,7 +100,7 @@ Why XGBoost:
 
 ### 3. Feature Engineering
 
-Features are designed to reflect structural system regimes. Currently very minimalist, to be expanded.
+Features are designed to reflect structural system regimes. 
 
 **Volatility persistence**
 - Lagged log prices
@@ -122,10 +122,8 @@ All features are constructed to avoid forward-looking bias.
 
 ### Regime detection
 
-- **Hidden Markov Model (HMM)**-based regime classifier
-- Unsupervised n-state (n=2) Gaussian HMM
-- Probabilistic regime assignment --> detecting high/low vol states
-- Or alternatively **vol z-score**-based regime classification
+- **vol z-score**-based -- currently used
+- **Hidden Markov Model (HMM)**-based; assumes Gaussian emissions -> *misspecified for this task* ; either Gaussian mixture, or self-coded t-dist should be used to account for distribution tails.
 
 ## Results (Baseline + ML in rolling window walk-forward CV)
 
@@ -145,36 +143,38 @@ All features are constructed to avoid forward-looking bias.
 
 ## Trading Framework
 
-- Cross-country 'market-neutral'-style framework
+- Blended 2-regime framework: high-vol signal -- predicted residuals, low-vol -- spread mean-reversion 
+- Cross-country 'market-neutral'-style; daily cross-sectional neutrality enforced
 - OOS backtest
 - Rolling z-scores, no lookahead
 - Adaptive thresholding (static/quantile/vol-based)
-- Daily cross-sectional neutrality enforced
-- Options: EWMA signal smoothing, rebalance thresholds, vol targeting, regime-based exposure shrinkage
-- PnL transaction-cost-adjusted
+- Rough transaction cost estimates included
 
 ---
 
-### Trading Results (OOS, incl. costs)
+### Trading Results (pooled low+high vol) (OOS, incl. costs)
 
-| Metric               | Value |
+| Metric | Value |
 |----------------------|-------|
-| Sharpe Ratio         | 2.4  |
-| Max Drawdown         |-3.8 |
-| Avg Daily Turnover   | 0.9 |
-| Win Rate | 44.8% |
-| Cost coverage ratio | 9.3 |
+| Sharpe | 1.9 |
+|Sortino | 2.3 |
+|Calmar | 1.5 | 
+| Avg Daily Turnover | 0.5 |
+| Win Rate (active) | 58.1% |
+| Cost coverage ratio | 10.4 |
+
 ---
 
 # Current issues and next steps
 
-- Add generation **forecasts**/outages / errors as features
-- Trading strategy has a few issues:
+- Add generation **forecast errors** as features
+- Fix HMM regime classifier 
+- Test statistical jump model as regime classifier
+- Trading strategy issues:
 	- P&L is dimensionless  -- need to define a notional and scale accordingly
-	- Cost estimates should be more realistic; slippage should also be added
-	- The performance in "calm" regimes is significantly worse than in crisis regimes (not nonsensical but not interesting either) ->
-	- Blended strategy with spread trading, reduced positions and stop-loss for "calm" regimes yields minor improvement ->
-	- Will add an intraday strategy -- shorter horizon, cleaner signal + more realistic 
+	- Cost estimates should be more realistic
+	- The performance in "calm" regimes is materially worse than in hig-vol regimes 
+	- Add an intraday strategy -- shorter horizon, cleaner signal + more realistic 
 
 ---
 
