@@ -123,7 +123,7 @@ All features are constructed to avoid forward-looking bias.
 ### Regime detection
 
 - **vol z-score**-based -- currently used
-- **Hidden Markov Model (HMM)**-based; assumes Gaussian emissions -> *misspecified for this task* ; either Gaussian mixture, or self-coded t-dist should be used to account for distribution tails.
+- **Hidden Markov Model (HMM)**-based; assumes Gaussian emissions -> **misspecified for this task** ; either Gaussian mixture, or self-coded t-dist should be used to account for distribution tails.
 
 ## Results (Baseline + ML in rolling window walk-forward CV)
 
@@ -167,14 +167,13 @@ All features are constructed to avoid forward-looking bias.
 
 # Current issues and next steps
 
-- Add generation **forecast errors** as features
 - Fix HMM regime classifier 
 - Test statistical jump model as regime classifier
 - Trading strategy issues:
 	- P&L is dimensionless  -- need to define a notional and scale accordingly
 	- Cost estimates should be more realistic
 	- The performance in "calm" regimes is materially worse than in hig-vol regimes 
-	- Add an intraday strategy -- shorter horizon, cleaner signal + more realistic 
+	- Add an ID strategy -- shorter horizon, cleaner signal; add **forecast errors** as features
 
 ---
 
