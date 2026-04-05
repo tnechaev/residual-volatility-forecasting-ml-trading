@@ -214,7 +214,7 @@ sharpe_scale_t = clip(rolling_sharpe[t-63..t-1] / sharpe_floor, 0, 1)
 ### Regime Breakdown
 
 | Regime | Sharpe | PnL (EUR) | Days |
-|--------|--------|-----------|------|-----------|
+|--------|--------|-----------|------|
 | Calm (65%) | 2.40 | 11.7M | 2429 | 
 | High-vol (35%) | 3.58 | 11.8M | 1309 | 
 
